@@ -757,9 +757,11 @@ def get_user_gallery(user_id):
     }), 200
 
 # Initialize database
-@app.before_first_request
 def create_tables():
     db.create_all()
+    ...
+with app.app_context():
+    create_tables()
     
     # Create default admin user if it doesn't exist
     admin = User.query.filter_by(email='admin@my.uopeople.edu').first()
