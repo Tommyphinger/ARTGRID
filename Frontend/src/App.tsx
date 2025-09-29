@@ -24,4 +24,4 @@ const App = () => (
   </QueryClientProvider>
 );
 
-export default App;
+export default App;// import { Toaster } from "@/components/ui/toaster"
