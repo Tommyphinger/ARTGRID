@@ -42,7 +42,7 @@ const Navigation = () => {
           <Button variant="hero" size="sm">
             Sign Up
           </Button>
-          <Button variant="ghost" size="sm" className="md:hidden">
+          <Button variant="ghost" size="sm" className="md:hidden" aria-label="Open menu">
             <Menu className="h-4 w-4" />
           </Button>
         </div>
