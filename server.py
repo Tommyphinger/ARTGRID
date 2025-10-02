@@ -7,6 +7,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 import os
+from pathlib import Path
 import hashlib
 import re
 from functools import wraps
@@ -14,14 +15,22 @@ import cloudinary
 import cloudinary.uploader
 from PIL import Image
 import io
+from sqlalchemy import text
+from sqlalchemy import CheckConstraint
 
 # ---------------------------------------------------------------------------
 # 1. CORE CONFIG
 # ---------------------------------------------------------------------------
 app = Flask(__name__, static_folder="Frontend/dist", static_url_path="/")
 
+# Database
+BASE_DIR = Path(__file__).resolve().parent
+DB_DIR = BASE_DIR / "db"
+DB_DIR.mkdir(parents=True, exist_ok=True)   #If ./db is missing, create it
+DB_PATH = DB_DIR / "artgrid.db"
+
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///artgrid.db")
+app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{DB_PATH.as_posix()}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "jwt-secret-change-me")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=7)
@@ -52,6 +61,16 @@ CORS(app)
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 # ---------------------------------------------------------------------------
+# 2.1. DATABASE SETTINGS (SQLite PRAGMAs)
+# ---------------------------------------------------------------------------
+with app.app_context():
+    if db.engine.url.drivername.startswith("sqlite"):
+        with db.engine.begin() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL;"))
+            conn.execute(text("PRAGMA synchronous=NORMAL;"))
+            conn.execute(text("PRAGMA foreign_keys=ON;"))
+
+# ---------------------------------------------------------------------------
 # 3. MODELS
 # ---------------------------------------------------------------------------
 class User(db.Model):
@@ -67,6 +86,24 @@ class User(db.Model):
     role = db.Column(db.String(20), default="student")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    __table_args__ = (
+        db.Index("idx_user_role", "role"),
+        db.Index("idx_user_verification", "verification_status"),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "full_name": self.full_name,
+            "email": self.email,
+            "student_id": self.student_id,
+            "year_of_study": self.year_of_study,
+            "profile_image_url": self.profile_image_url,
+            "verification_status": self.verification_status,
+            "role": self.role,
+            "created_at": self.created_at.replace(microsecond=0).isoformat() if self.created_at else None
+        }
+
     artworks = db.relationship("Artwork", backref="artist", lazy=True, cascade="all, delete-orphan")
     likes = db.relationship("Like", backref="user", lazy=True, cascade="all, delete-orphan")
     comments = db.relationship("Comment", backref="user", lazy=True, cascade="all, delete-orphan")
@@ -74,6 +111,7 @@ class User(db.Model):
 class Artwork(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    status = db.Column(db.String(20), default="pending", nullable=False)  # pending / approved / rejected
     title = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     medium = db.Column(db.String(50), nullable=False)
@@ -82,12 +120,41 @@ class Artwork(db.Model):
     thumbnail_url = db.Column(db.String(255))
     tags = db.Column(db.String(255))
     creation_date = db.Column(db.Date)
-    status = db.Column(db.String(20), default="pending")
     submission_date = db.Column(db.DateTime, default=datetime.utcnow)
     approval_date = db.Column(db.DateTime)
     likes_count = db.Column(db.Integer, default=0)
     views_count = db.Column(db.Integer, default=0)
     is_featured = db.Column(db.Boolean, default=False)
+
+    __table_args__ = (
+        db.Index('idx_artwork_status', "status"),
+        db.Index('idx_artwork_user', "user_id"),
+        
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected')",
+            name="ck_artwork_status_valid"
+        ),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "title": self.title,
+            "description": self.description,
+            "medium": self.medium,
+            "category": self.category,
+            "file_url": self.file_url,
+            "thumbnail_url": self.thumbnail_url,
+            "tags": self.tags,
+            "creation_date": self.creation_date.replace(microsecond=0).isoformat() if self.creation_date else None,
+            "status": self.status,
+            "submission_date": self.submission_date.isoformat() if self.submission_date else None,
+            "approval_date": self.approval_date.isoformat() if self.approval_date else None,
+            "likes_count": self.likes_count,
+            "views_count": self.views_count,
+            "is_featured": self.is_featured
+        }
 
     likes = db.relationship("Like", backref="artwork", lazy=True, cascade="all, delete-orphan")
     comments = db.relationship("Comment", backref="artwork", lazy=True, cascade="all, delete-orphan")
@@ -100,6 +167,14 @@ class Like(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     __table_args__ = (db.UniqueConstraint("user_id", "artwork_id"),)
 
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "artwork_id": self.artwork_id,
+            "timestamp": self.timestamp.replace(microsecond=0).isoformat() if self.timestamp else None
+        }
+
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
@@ -107,6 +182,21 @@ class Comment(db.Model):
     content = db.Column(db.Text, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     is_flagged = db.Column(db.Boolean, default=False)
+
+    __table_args__ = (
+        db.Index('idx_comment_artwork', "artwork_id"),
+        db.Index('idx_comment_user', "user_id"),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "artwork_id": self.artwork_id,
+            "content": self.content,
+            "timestamp": self.timestamp.replace(microsecond=0).isoformat() if self.timestamp else None,
+            "is_flagged": self.is_flagged
+        }
 
 class Moderation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -116,6 +206,22 @@ class Moderation(db.Model):
     feedback = db.Column(db.Text)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     moderator = db.relationship("User", foreign_keys=[moderator_id])
+
+    __table_args__ = (
+        db.Index("idx_moderation_artwork", "artwork_id"),
+        db.Index("idx_moderation_moderator", "moderator_id"),
+        db.Index("idx_moderation_action", "action"),   # opcional
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "artwork_id": self.artwork_id,
+            "moderator_id": self.moderator_id,
+            "action": self.action,
+            "feedback": self.feedback,
+            "timestamp": self.timestamp.replace(microsecond=0).isoformat() if self.timestamp else None
+        }
 
 # ---------------------------------------------------------------------------
 # 4. UTILITIES
@@ -178,6 +284,29 @@ def spa(path):
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok", "utc": datetime.utcnow().isoformat()})
+
+# ---------------------------------------------------------------------------
+# 6.1 DATASET SUMMARY (Admin Health)
+# ---------------------------------------------------------------------------
+@app.get("/api/admin/dataset/summary")
+def dataset_summary():
+    total = db.session.query(db.func.count(Artwork.id)).scalar()
+
+    approved = db.session.query(db.func.count(Artwork.id))\
+        .filter(Artwork.status == "approved").scalar()
+
+    pending = db.session.query(db.func.count(Artwork.id))\
+        .filter(Artwork.status == "pending").scalar()
+
+    rejected = db.session.query(db.func.count(Artwork.id))\
+        .filter(Artwork.status == "rejected").scalar()
+
+    return jsonify({
+        "total": total,
+        "approved": approved,
+        "pending": pending,
+        "rejected": rejected
+    })
 
 # ---------------------------------------------------------------------------
 # 7. AUTH ROUTES
@@ -265,6 +394,25 @@ def update_profile():
 # ---------------------------------------------------------------------------
 # 8. ARTWORK ROUTES
 # ---------------------------------------------------------------------------
+@app.route("/api/artworks", methods=["GET"])
+def list_artworks():
+    try:
+        page     = int(request.args.get("page", 1))
+        per_page = min(int(request.args.get("per_page", 24)), 100)  # límite máximo
+    except ValueError:
+        page, per_page = 1, 24
+
+    q = Artwork.query.order_by(Artwork.submission_date.desc())
+    items = q.limit(per_page).offset((page-1) * per_page).all()
+    total = db.session.query(db.func.count(Artwork.id)).scalar()
+
+    return jsonify({
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "items": [a.to_dict() for a in items]  # necesitas método to_dict en Artwork
+    })
+
 @app.route("/api/artworks/upload", methods=["POST"])
 @jwt_required()
 def upload_artwork():
@@ -446,6 +594,9 @@ def categories():
             "Other",
         ],
     )
+
+
+
 
 # ---------------------------------------------------------------------------
 # 9. COMMENTS

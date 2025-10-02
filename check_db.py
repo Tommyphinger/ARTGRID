@@ -11,7 +11,7 @@ Quick SQLite inspector for ARTGRID.
 import sqlite3
 from textwrap import shorten
 
-DB_PATH = "instance/artgrid.db"
+DB_PATH = "db/artgrid.db"
 SAMPLE_LIMIT = 10  # how many rows to preview per table
 
 TABLES = {

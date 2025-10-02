@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
 import artgridLogo from "@/assets/artgrid-logo.png";
 import { Search, Menu } from "lucide-react";
+import { Link } from "react-router-dom";
+
 
 const Navigation = () => {
   return (
@@ -17,21 +19,21 @@ const Navigation = () => {
           </div>
           
           <div className="hidden md:flex items-center space-x-6">
-            <a href="#" className="text-sm font-medium hover:text-coral transition-colors">
+            <Link to="/" className="text-sm font-medium hover:text-coral transition-colors">
               Home
-            </a>
-            <a href="#" className="text-sm font-medium hover:text-coral transition-colors">
+            </Link>
+            <Link to="/gallery" className="text-sm font-medium hover:text-coral transition-colors">
               Gallery
-            </a>
-            <a href="#" className="text-sm font-medium hover:text-coral transition-colors">
+            </Link>
+            <Link to="/create" className="text-sm font-medium hover:text-coral transition-colors">
               Create
-            </a>
-            <a href="#" className="text-sm font-medium hover:text-coral transition-colors">
+            </Link>
+            <Link to="/community" className="text-sm font-medium hover:text-coral transition-colors">
               Community
-            </a>
-            <a href="#" className="text-sm font-medium hover:text-coral transition-colors">
+            </Link>
+            <Link to="/about" className="text-sm font-medium hover:text-coral transition-colors">
               About
-            </a>
+            </Link>
           </div>
         </div>
 

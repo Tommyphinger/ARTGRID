@@ -1,17 +1,23 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import path from 'path'; // For path resolution
+import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/', // Use root-relative paths (adjust to '/your-subpath/' if deployed under a subdir)
+  base: '/',                 // OK para prod servido por Flask
   build: {
     outDir: 'dist',
-    sourcemap: true, // Enable source maps for better error debugging
+    sourcemap: true,
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'), // Maps @/ to the src directory
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    proxy: {
+      // envía cualquier llamada a /api desde Vite (5173) al backend Flask (5000)
+      '/api': 'http://localhost:5000',
     },
   },
 });
